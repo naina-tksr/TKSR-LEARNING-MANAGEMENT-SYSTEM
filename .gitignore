@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment files (keep secrets out of git)
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+dist-server/
+
+# Database + uploads (local persistence)
+server/data/
+server/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated screenshots
+shots/
