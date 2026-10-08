@@ -5,12 +5,33 @@ import { closeDatabase, initDatabase } from './db/helpers.js'
 import { runMigrations } from './db/migrate.js'
 import { getAIProvider } from './services/ai/index.js'
 
-function main(): void {
+
+
+
+async function main(): Promise<void> {
   initDatabase(config.databasePath)
   const applied = runMigrations()
   if (applied.length > 0) {
     console.log(`[db] Applied ${applied.length} migration(s): ${applied.join(', ')}`)
   }
+   try {
+    const { get } = await import("./db/helpers.js");
+    const row: any =get("SELECT COUNT(*) as c FROM users")
+    if (!row || row.c ===0) {
+      console.log("[db] Empty database, seeding ...")
+      // await import("./db/seed.js");
+      console.log("[db] Seeding complete.")
+      const mod: any = await import("./db/seed.js");
+      if(mod.seed){
+         await mod.seed();
+         const {initDatabase :reInit} = await import("./db/helpers.js");
+         reInit(config.databasePath)
+      }
+      console.log("[db] Seeding complete.")
+    }
+   }catch(e){
+    console.log("[db] seeding check error", e)
+   }
   fs.mkdirSync(config.uploadDir, { recursive: true })
 
   try {
