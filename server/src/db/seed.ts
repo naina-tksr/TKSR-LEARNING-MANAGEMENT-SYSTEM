@@ -2,6 +2,7 @@ import { config } from '../config.js'
 import { hashPassword } from '../middleware/auth.js'
 import { all, closeDatabase, exec, get, initDatabase, run, tx } from './helpers.js'
 import { runMigrations } from './migrate.js'
+import { seedProjectPrograms } from './seed-projects.js'
 
 /**
  * Seeds realistic demo data:
@@ -334,17 +335,17 @@ Structure the write-up with headings and include short code snippets. Attach you
         a2, criteria, description, marks, index,
       )
     })
-    const rubric3: [string, string, number][] = [
-      ['Metric selection', 'Chooses the metric that matches the business cost', 10],
-      ['Error analysis', 'Reads the confusion matrices beyond accuracy', 12],
-      ['Recommendations', 'Concrete, prioritised improvement steps', 8],
-    ]
-    rubric3.forEach(([criteria, description, marks], index) => {
-      run(
-        'INSERT INTO rubric_items (assignment_id, criteria, description, max_marks, position) VALUES (?, ?, ?, ?, ?)',
-        a3, criteria, description, marks, index,
-      )
-    })
+    // -----------------------------------------------------------------
+    // Completion-certificate rules for this program (enabled)
+    // -----------------------------------------------------------------
+    run(
+      `INSERT INTO program_completion_rules
+         (program_id, program_kind, certificate_enabled, certificate_type, passing_percent,
+          require_all_modules, require_all_assignments, require_final_assessment, final_assignment_id,
+          require_trainer_approval, signatory_name, signatory_title)
+       VALUES (?, 'standard', 1, 'Applied AI Engineering Completion', 60, 1, 1, 0, NULL, 0, 'TKSR Learning', 'Director of Learning')`,
+      programId,
+    )
 
     // -----------------------------------------------------------------
     // Lesson progress
@@ -563,6 +564,16 @@ Tell me which part you've attempted so far, and we'll work through it together.`
         'INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         userId, action, entityType, entityId, JSON.stringify(metadata), createdAt,
       )
+    })
+
+    // -----------------------------------------------------------------
+    // Project programs (1-Day / 7-Day): live classes, task-based
+    // assignments and completion-certificate rules.
+    // -----------------------------------------------------------------
+    seedProjectPrograms({
+      trainerId: rahulId,
+      adminId,
+      studentIds: students.map((student) => student.id),
     })
 
     console.log('[seed] Demo data created.')

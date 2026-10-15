@@ -86,6 +86,34 @@ describe('end-to-end learning workflow', () => {
     expect(myAssignments.body.data[0]).toMatchObject({ id: assignmentId, isSubmitted: false })
   })
 
+  it('program detail always includes rubricItems for assignments (never undefined)', async () => {
+    const detail = await ctx.api<{
+      assignments: { id: number; rubricItems: { criteria: string; maxMarks: number }[] }[]
+    }>('GET', `/api/programs/${programId}`, { token: fixture.trainer1.token })
+    expect(detail.status).toBe(200)
+    expect(detail.body.assignments).toHaveLength(1)
+    expect(detail.body.assignments[0].rubricItems).toHaveLength(2)
+    expect(detail.body.assignments[0].rubricItems[0]).toMatchObject({ criteria: 'Correctness', maxMarks: 12 })
+
+    // An assignment created without a rubric must still return an empty array,
+    // because the program detail UI reads `rubricItems.length`.
+    const withoutRubric = await seedAssignment(ctx, fixture, programId, {
+      title: 'No rubric assignment',
+      rubricItems: [],
+    })
+    const after = await ctx.api<{
+      assignments: { id: number; rubricItems: unknown[] }[]
+    }>('GET', `/api/programs/${programId}`, { token: fixture.trainer1.token })
+    const created = after.body.assignments.find((row) => row.id === withoutRubric)
+    expect(created?.rubricItems).toEqual([])
+
+    // Students see the same contract on published assignments.
+    const studentView = await ctx.api<{
+      assignments: { rubricItems: unknown[] }[]
+    }>('GET', `/api/programs/${programId}`, { token: fixture.student1.token })
+    expect(studentView.body.assignments[0].rubricItems).toHaveLength(2)
+  })
+
   it('student submits work (text + file) and can resubmit before grading', async () => {
     const withText = new FormData()
     withText.append('text', 'Here is my answer with a clear explanation and worked reasoning.')
@@ -217,6 +245,53 @@ describe('end-to-end learning workflow', () => {
     )
     expect(notifications.body.data.some((note) => note.type === 'grade')).toBe(true)
     expect(notifications.body.unread).toBeGreaterThan(0)
+  })
+
+  it('reports pending → submitted → graded on /my/assignments for the student UI', async () => {
+    // The student Assignments page reads these flat fields directly. It must not
+    // depend on a nested `submission` object, which the API never returns.
+    const secondAssignmentId = await seedAssignment(ctx, fixture, programId, {
+      title: 'Status lifecycle assignment',
+    })
+
+    type Row = { id: number; isSubmitted: boolean; submissionStatus: string | null; score: number | null }
+    const list = async (status: string): Promise<{ data: Row[]; meta: { total: number } }> => {
+      const res = await ctx.api<{ data: Row[]; meta: { total: number } }>(
+        'GET',
+        `/api/my/assignments?status=${status}`,
+        { token: fixture.student1.token },
+      )
+      return res.body
+    }
+
+    // 1. No submission yet → only "pending" lists it, and it reads as not submitted.
+    const pendingRow = (await list('pending')).data.find((row) => row.id === secondAssignmentId)
+    expect(pendingRow).toMatchObject({ isSubmitted: false, submissionStatus: null, score: null })
+
+    // 2. Awaiting review → "submitted" lists it, "pending" no longer does.
+    const form = new FormData()
+    form.append('text', 'Awaiting review.')
+    const submitted = await ctx.api<{ submission: { id: number } }>(
+      'POST',
+      `/api/assignments/${secondAssignmentId}/submissions`,
+      { token: fixture.student1.token, form },
+    )
+    expect(submitted.status).toBe(201)
+
+    const awaitingRow = (await list('submitted')).data.find((row) => row.id === secondAssignmentId)
+    expect(awaitingRow).toMatchObject({ isSubmitted: true, submissionStatus: 'submitted' })
+    expect((await list('pending')).data.some((row) => row.id === secondAssignmentId)).toBe(false)
+
+    // 3. Trainer releases a grade → "graded" lists it with a score.
+    const released = await ctx.api('POST', `/api/submissions/${submitted.body.submission.id}/grade`, {
+      token: fixture.trainer1.token,
+      body: { score: 15, feedback: 'Reviewed.' },
+    })
+    expect(released.status).toBe(200)
+
+    const gradedRow = (await list('graded')).data.find((row) => row.id === secondAssignmentId)
+    expect(gradedRow).toMatchObject({ isSubmitted: true, submissionStatus: 'graded', score: 15 })
+    expect(gradedRow && 'submission' in gradedRow).toBe(false)
   })
 
   it('tracks lesson progress and rolls back correctly', async () => {

@@ -27,6 +27,8 @@ export const config = {
     .map((origin) => origin.trim())
     .filter(Boolean),
   maxUploadBytes: Math.max(1, Number(process.env.MAX_UPLOAD_MB ?? 5)) * 1024 * 1024,
+  // Public origin used to build certificate verification URLs (optional).
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? 'http://localhost:5174').replace(/\/+$/, ''),
   ai: {
     provider: (process.env.AI_PROVIDER ?? 'auto') as AIProviderName,
     apiKey: process.env.OPENAI_API_KEY ?? '',

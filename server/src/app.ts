@@ -5,6 +5,9 @@ import express from 'express'
 import { config } from './config.js'
 import { requireAuth } from './middleware/auth.js'
 import { errorHandler, notFoundHandler } from './middleware/error.js'
+import { certificatesRouter } from './routes/certificates.js'
+import { liveClassesRouter } from './routes/liveClasses.js'
+import { publicCertificatesRouter } from './routes/publicCertificates.js'
 import { aiRouter } from './routes/ai.js'
 import { assignmentsRouter } from './routes/assignments.js'
 import { authRouter } from './routes/auth.js'
@@ -27,6 +30,7 @@ export function createApp(): express.Express {
   // Public routes (mounted before the auth gate)
   app.use('/api/health', healthRouter)
   app.use('/api/auth', authRouter)
+  app.use('/api/public/certificates', publicCertificatesRouter)
 
   // Everything under /api requires a valid JWT from here on
   app.use('/api', requireAuth)
@@ -37,6 +41,8 @@ export function createApp(): express.Express {
   app.use('/api', modulesRouter)
   app.use('/api', assignmentsRouter)
   app.use('/api', submissionsRouter)
+  app.use('/api', liveClassesRouter)
+  app.use('/api', certificatesRouter)
   app.use('/api/my', myRouter)
   app.use('/api/ai', aiRouter)
   app.use('/api/dashboard', dashboardRouter)

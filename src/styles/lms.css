@@ -774,8 +774,9 @@ table.table {
   flex-direction: column;
   gap: 10px;
   transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: pointer;
 }
-.program-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow), 0 6px 18px rgba(15, 23, 42, 0.08); }
+.program-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }.program-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow), 0 6px 18px rgba(15, 23, 42, 0.08); }
 .program-card h3 { margin: 0; font-size: 1.02rem; }
 .program-card h3 a { color: var(--text); }
 .program-card h3 a:hover { color: var(--primary); }

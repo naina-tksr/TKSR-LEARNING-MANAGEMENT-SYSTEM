@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { all, get, run } from '../db/helpers.js'
-import type { AssignmentRow, CohortRow, ProgramRow } from '../db/types.js'
+import type { AssignmentRow, CohortRow, ProgramRow, RubricItemRow } from '../db/types.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { ApiError } from '../middleware/error.js'
 import { validateBody } from '../middleware/validate.js'
@@ -13,7 +13,7 @@ import {
 import { recordAudit } from '../services/audit.js'
 import { notify } from '../services/notifications.js'
 import { getCompletedLessonIds, getProgramProgress, getNextLesson } from '../services/progress.js'
-import { camelKeys } from '../utils/camel.js'
+import { camelKeys, camelList } from '../utils/camel.js'
 import { paramId } from '../utils/http.js'
 import { paginate, paginationSchema, toPagination } from '../utils/pagination.js'
 
@@ -200,6 +200,21 @@ programsRouter.get('/:id', (req, res, next) => {
        ORDER BY a.due_at IS NULL, a.due_at, a.id`,
       programId,
     )
+    const rubricRows = assignmentRows.length > 0
+      ? all<RubricItemRow>(
+          `SELECT * FROM rubric_items
+           WHERE assignment_id IN (${assignmentRows.map(() => '?').join(', ')})
+           ORDER BY assignment_id, position, id`,
+          ...assignmentRows.map((row) => row.id),
+        )
+      : []
+    const rubricByAssignment = new Map<number, RubricItemRow[]>()
+    for (const item of rubricRows) {
+      const items = rubricByAssignment.get(item.assignment_id)
+      if (items) items.push(item)
+      else rubricByAssignment.set(item.assignment_id, [item])
+    }
+
     const mySubmissions =
       access === 'student'
         ? all<{ id: number; assignment_id: number; status: string; score: number | null; is_late: number; submitted_at: string }>(
@@ -220,6 +235,7 @@ programsRouter.get('/:id', (req, res, next) => {
         dueAt: row.due_at,
         status: row.status,
         createdAt: row.created_at,
+        rubricItems: camelList(rubricByAssignment.get(row.id) ?? []),
       }
       if (access === 'student') {
         const mine = submissionByAssignment.get(row.id)

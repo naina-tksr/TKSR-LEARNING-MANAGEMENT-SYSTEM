@@ -5,6 +5,185 @@ export type ProgramStatus = 'draft' | 'published'
 export type Level = 'beginner' | 'intermediate' | 'advanced'
 export type SubmissionStatus = 'submitted' | 'graded'
 
+// Task & per-task grading
+export type TaskFormat = 'text' | 'mixed' | 'url' | 'file'
+export type TaskResponseStatus = 'pending' | 'awaiting_review' | 'assessed'
+
+export interface AssignmentTask {
+  id: number
+  assignmentId: number
+  position: number
+  prompt: string
+  format: TaskFormat
+  required: boolean
+  maxMarks: number
+}
+
+export interface TaskResponse {
+  id: number
+  submissionId: number
+  taskId: number
+  responseText: string
+  score: number | null
+  feedback: string | null
+  status: TaskResponseStatus
+  reviewedBy: number | null
+  reviewedAt: string | null
+  updatedAt: string
+}
+
+export interface TaskCompletion {
+  hasTasks: boolean
+  complete: boolean
+  requiredTotal: number
+  requiredAssessed: number
+  outstanding: { taskId: number; prompt: string; status: TaskResponseStatus; required: boolean }[]
+}
+
+// Extended assignment with tasks
+export interface AssignmentWithTasks extends Assignment {
+  tasks: AssignmentTask[]
+  myTaskResponses?: TaskResponse[]
+}
+
+// Extended submission detail with tasks
+export interface SubmissionDetailWithTasks extends SubmissionDetail {
+  tasks: AssignmentTask[]
+  taskResponses: TaskResponse[]
+  taskCompletion: TaskCompletion
+}
+
+// Live classes
+export type LiveClassStatus = 'draft' | 'scheduled' | 'cancelled'
+
+export interface LiveClass {
+  id: number
+  programId: number
+  moduleId: number | null
+  title: string
+  classDate: string
+  startTime: string
+  timezone: string
+  durationMinutes: number
+  meetUrl: string | null
+  trainerId: number | null
+  instructions: string
+  status: LiveClassStatus
+  createdBy: number | null
+  createdAt: string
+  updatedAt: string
+  moduleTitle?: string | null
+  trainerName?: string | null
+}
+
+export interface CreateLiveClassInput {
+  title: string
+  classDate: string
+  startTime: string
+  timezone: string
+  durationMinutes?: number
+  meetUrl: string
+  moduleId?: number | null
+  instructions?: string
+  status?: 'draft' | 'scheduled'
+}
+
+export interface UpdateLiveClassInput {
+  title?: string
+  classDate?: string
+  startTime?: string
+  timezone?: string
+  durationMinutes?: number
+  meetUrl?: string
+  moduleId?: number | null
+  instructions?: string
+  status?: LiveClassStatus
+}
+
+// Certificates
+export type CertificateKind = '1_day_project' | '7_day_project' | 'general'
+
+export interface Certificate {
+  id: number
+  studentId: number
+  programId: number
+  certificateId: string
+  certificateType: string
+  certificateTitle: string
+  studentName: string
+  programTitle: string
+  completionDate: string
+  signatoryName: string | null
+  signatoryTitle: string | null
+  verificationCode: string
+  verificationUrl: string
+  downloadUrl: string
+  issuedAt: string
+}
+
+// Eligibility report for a student's enrolled program
+export interface ProgramEligibility {
+  programId: number
+  programTitle: string
+  eligible: boolean
+  enrolled: boolean
+  certificateEnabled: boolean
+  certificateIssued: boolean
+  certificate: Certificate | null
+  lessons: { total: number; completed: number; percent: number; satisfied: boolean }
+  assignments: { total: number; satisfied: boolean; items?: unknown[] }
+  finalAssessment: { id: number; title: string; graded: boolean; percent: number | null } | null
+  reasons: string[]
+}
+
+// Staff view: student with certificate status
+export interface ProgramStudentCertificate {
+  studentId: number
+  name: string
+  email: string
+  eligible: boolean
+  certificateIssued: boolean
+  certificateId: string | null
+  reasons: string[]
+}
+
+export interface EligibilityReport {
+  eligible: boolean
+  reason: string | null
+  rules: {
+    programKind: string
+    passingPercent: number
+    requireAllModules: boolean
+    requireAllAssignments: boolean
+    requireFinalAssessment: boolean
+    finalAssignmentId: number | null
+    signatoryName: string | null
+    signatoryTitle: string | null
+    certificateEnabled: boolean
+    certificateType: string
+  }
+  checks: {
+    enrolled: boolean
+    modulesComplete: boolean
+    assignmentsComplete: boolean
+    finalAssessmentPassed: boolean
+    trainerApproved: boolean
+  }
+}
+
+export interface CompletionRules {
+  programKind: string
+  passingPercent: number
+  requireAllModules: boolean
+  requireAllAssignments: boolean
+  requireFinalAssessment: boolean
+  finalAssignmentId: number | null
+  signatoryName: string | null
+  signatoryTitle: string | null
+  certificateEnabled: boolean
+  certificateType: string
+}
+
 export interface User {
   id: number
   name: string
@@ -239,11 +418,17 @@ export interface StudentAssignmentRow {
   description: string
   maxMarks: number
   dueAt: string | null
-  status: ProgramStatus
   programId: number
   programTitle: string
+  submissionId: number | null
+  submissionStatus: SubmissionStatus | null
+  score: number | null
+  isLate: boolean
+  submittedAt: string | null
+  gradedAt: string | null
+  feedback: string | null
   isSubmitted: boolean
-  submission?: MySubmissionSummary | null
+  isOverdue: boolean
 }
 
 export interface StudentProgramRow {

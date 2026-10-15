@@ -12,7 +12,7 @@ import EmptyState from '../components/EmptyState.vue'
 
 type StatusFilter = 'all' | 'pending' | 'submitted' | 'graded'
 
-const rows = ref<StudentAssignmentRow[]>([])
+const rows = ref<any[]>([])
 const meta = ref({ page: 1, limit: 15, total: 0, totalPages: 0 })
 const loading = ref(true)
 const error = ref<unknown>(null)
@@ -31,10 +31,10 @@ async function load(): Promise<void> {
       rows.value = result.data
       meta.value = result.meta
     } else {
-      // Trainers/admins manage assignments inside each program; the cross-program
-      // view that matters for them is the grading queue.
-      rows.value = []
-      meta.value = { page: 1, limit: 15, total: 0, totalPages: 0 }
+      const params = new URLSearchParams({ page: String(page.value), limit: '15' })
+      const result = await api.get<Paginated<any>>(`/assignments?${params}`)
+      rows.value = result.data
+      meta.value = result.meta
     }
   } catch (cause) {
     error.value = cause
@@ -97,17 +97,17 @@ onMounted(load)
 
           <span v-if="isStudent" class="right">
             <span
-              v-if="assignment.submission"
+              v-if="assignment.isSubmitted"
               class="badge"
-              :class="assignment.submission.status === 'graded' ? 'badge-success' : 'badge-info'"
+              :class="assignment.submissionStatus === 'graded' ? 'badge-success' : 'badge-info'"
             >
-              {{ assignment.submission.status }}
+              {{ assignment.submissionStatus }}
             </span>
             <span v-else class="badge badge-warning">not submitted</span>
-            <div v-if="assignment.submission?.score !== null && assignment.submission?.score !== undefined" class="small" style="margin-top: 4px">
-              <strong>{{ assignment.submission.score }}</strong>/{{ assignment.maxMarks }}
+            <div v-if="assignment.score !== null && assignment.score !== undefined" class="small" style="margin-top: 4px">
+              <strong>{{ assignment.score }}</strong>/{{ assignment.maxMarks }}
             </div>
-            <div v-else-if="isPast(assignment.dueAt) && !assignment.submission" class="small" style="color: var(--danger-text); margin-top: 4px">
+            <div v-else-if="isPast(assignment.dueAt) && !assignment.isSubmitted" class="small" style="color: var(--danger-text); margin-top: 4px">
               past due
             </div>
           </span>

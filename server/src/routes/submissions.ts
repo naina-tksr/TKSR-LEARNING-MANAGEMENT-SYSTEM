@@ -17,6 +17,14 @@ import {
 import { recordAudit } from '../services/audit.js'
 import { getAIProvider } from '../services/ai/index.js'
 import { notify } from '../services/notifications.js'
+import {
+  gradeTasks,
+  listTasks,
+  listTaskResponses,
+  syncTaskResponses,
+  taskCompletion,
+  taskView,
+} from '../services/tasks.js'
 import { camelKeys, camelList } from '../utils/camel.js'
 import { paramId } from '../utils/http.js'
 import { paginate, paginationSchema, toPagination } from '../utils/pagination.js'
@@ -141,8 +149,35 @@ submissionsRouter.post('/assignments/:id/submissions', requireRole('student'), u
     }
     const text = parsed.data.text ?? ''
     const url = parsed.data.url && parsed.data.url.length > 0 ? parsed.data.url : null
-    if (!text && !url && !req.file) {
-      throw new ApiError(400, 'Provide a text answer, a URL or a file attachment')
+
+    // Per-task answers arrive as a JSON string inside the multipart form.
+    const taskAnswers: { taskId: number; responseText: string }[] = []
+    const rawTaskAnswers = req.body.taskResponses
+    if (typeof rawTaskAnswers === 'string' && rawTaskAnswers.trim().length > 0) {
+      let decoded: unknown
+      try {
+        decoded = JSON.parse(rawTaskAnswers)
+      } catch {
+        removeFileQuietly(req.file?.path)
+        throw new ApiError(400, 'taskResponses must be valid JSON')
+      }
+      if (!Array.isArray(decoded)) {
+        removeFileQuietly(req.file?.path)
+        throw new ApiError(400, 'taskResponses must be a JSON array of { taskId, responseText }')
+      }
+      const knownTasks = new Set(listTasks(assignmentId).map((task) => task.id))
+      for (const item of decoded as Record<string, unknown>[]) {
+        const taskId = Number(item?.taskId)
+        if (!Number.isInteger(taskId) || !knownTasks.has(taskId)) {
+          removeFileQuietly(req.file?.path)
+          throw new ApiError(400, `Unknown task id ${String(item?.taskId)} for this assignment`)
+        }
+        taskAnswers.push({ taskId, responseText: String(item?.responseText ?? '') })
+      }
+    }
+
+    if (!text && !url && !req.file && taskAnswers.length === 0) {
+      throw new ApiError(400, 'Provide a text answer, a URL, a file attachment or task responses')
     }
 
     const existing = get<{ id: number; status: string; file_path: string | null }>(
@@ -210,6 +245,10 @@ submissionsRouter.post('/assignments/:id/submissions', requireRole('student'), u
         nowIso,
       )
       submissionId = result.lastInsertRowid
+    }
+
+    if (listTasks(assignmentId).length > 0) {
+      syncTaskResponses(submissionId, assignmentId, taskAnswers)
     }
 
     recordAudit({
@@ -385,6 +424,9 @@ function submissionDetail(req: Request, submissionId: number) {
     student: student ? camelKeys(student) : null,
     gradedBy: gradedBy ? camelKeys(gradedBy) : null,
     evaluations,
+    tasks: listTasks(assignment.id).map(taskView),
+    taskResponses: camelList(listTaskResponses(submission.id)),
+    taskCompletion: taskCompletion(submission.id, assignment.id),
     canGrade: user.role === 'admin' || (user.role === 'trainer' && program.trainer_id === user.id),
   }
 }
@@ -473,6 +515,49 @@ submissionsRouter.post('/submissions/:id/evaluate', requireRole('admin', 'traine
   }
 })
 
+const taskGradeSchema = z.object({
+  grades: z
+    .array(
+      z.object({
+        taskId: z.number().int().positive(),
+        score: z.number().int(),
+        feedback: z.string().trim().max(2000).optional(),
+      }),
+    )
+    .min(1),
+})
+
+// POST /api/submissions/:id/task-grades — per-task assessment (admin/trainer)
+submissionsRouter.post(
+  '/submissions/:id/task-grades',
+  requireRole('admin', 'trainer'),
+  validateBody(taskGradeSchema),
+  (req, res, next) => {
+    try {
+      const user = req.user!
+      const submissionId = paramId(req.params.id)
+      const { submission, assignment } = requireSubmissionAccess(user, submissionId)
+      if (submission.status === 'graded') {
+        throw new ApiError(409, 'Submission has already been graded and cannot be re-assessed at task level')
+      }
+      const body = req.body as z.infer<typeof taskGradeSchema>
+      // Unknown task ids and out-of-range scores throw 400 inside gradeTasks.
+      gradeTasks(submissionId, assignment.id, user.id, body.grades)
+      recordAudit({
+        userId: user.id,
+        action: 'submission.task_grade',
+        entityType: 'submission',
+        entityId: submissionId,
+        metadata: { taskIds: body.grades.map((grade) => grade.taskId) },
+        ip: req.ip,
+      })
+      res.json(submissionDetail(req, submissionId))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
 // POST /api/submissions/:id/grade — the ONLY endpoint that releases a grade
 submissionsRouter.post('/submissions/:id/grade', requireRole('admin', 'trainer'), validateBody(gradeSchema), (req, res, next) => {
   try {
@@ -482,6 +567,20 @@ submissionsRouter.post('/submissions/:id/grade', requireRole('admin', 'trainer')
     const body = req.body as z.infer<typeof gradeSchema>
     if (body.score > assignment.max_marks) {
       throw new ApiError(400, `Score cannot exceed the maximum marks (${assignment.max_marks})`)
+    }
+
+    // Grading integrity (BUG-01/02): a submission with required tasks cannot be
+    // finalized while any required response is unassessed/pending.
+    const completion = taskCompletion(submissionId, assignment.id)
+    if (completion.hasTasks && !completion.complete) {
+      throw new ApiError(
+        400,
+        'Cannot finalize this submission: required tasks are still outstanding',
+        completion.outstanding.map((item) => ({
+          field: `task.${item.taskId}`,
+          message: `"${item.prompt}" is ${item.status}`,
+        })),
+      )
     }
 
     let evaluationStatus: 'accepted' | 'edited' | null = null

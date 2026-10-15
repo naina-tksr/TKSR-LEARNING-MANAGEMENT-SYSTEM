@@ -170,3 +170,100 @@ export interface AuditLogRow {
   ip: string | null
   created_at: string
 }
+
+export type ProgramKind = 'standard' | 'one_day_project' | 'seven_day_project'
+
+export interface ProgramCompletionRulesRow {
+  program_id: number
+  program_kind: ProgramKind
+  certificate_enabled: number
+  certificate_type: string
+  passing_percent: number
+  require_all_modules: number
+  require_all_assignments: number
+  require_final_assessment: number
+  final_assignment_id: number | null
+  require_trainer_approval: number
+  signatory_name: string
+  signatory_title: string
+  created_at: string
+  updated_at: string
+}
+
+export type LiveClassStatus = 'draft' | 'scheduled' | 'cancelled'
+
+export interface LiveClassRow {
+  id: number
+  program_id: number
+  module_id: number | null
+  title: string
+  class_date: string
+  start_time: string
+  timezone: string
+  duration_minutes: number
+  meet_url: string | null
+  trainer_id: number | null
+  instructions: string
+  status: 'draft' | 'scheduled' | 'cancelled'
+  created_by: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AssignmentTaskRow {
+  id: number
+  assignment_id: number
+  position: number
+  prompt: string
+  format: 'text' | 'mixed' | 'url' | 'file'
+  required: number
+  max_marks: number
+  created_at: string
+  updated_at: string
+}
+
+export type TaskResponseStatus = 'pending' | 'answered' | 'awaiting_review' | 'assessed'
+
+export interface TaskResponseRow {
+  id: number
+  submission_id: number
+  task_id: number
+  response_text: string
+  status: TaskResponseStatus
+  score: number | null
+  feedback: string | null
+  reviewed_by: number | null
+  reviewed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectApprovalRow {
+  id: number
+  student_id: number
+  program_id: number
+  approved_by: number | null
+  approved_at: string
+  note: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CertificateRow {
+  id: number
+  certificate_id: string
+  verification_code: string
+  student_id: number
+  program_id: number
+  certificate_type: string
+  certificate_title: string
+  student_name: string
+  program_title: string
+  completion_date: string
+  signatory_name: string
+  signatory_title: string
+  issued_by: number | null
+  metadata: string
+  issued_at: string
+  created_at: string
+}

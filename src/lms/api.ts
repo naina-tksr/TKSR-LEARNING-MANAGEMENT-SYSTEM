@@ -1,6 +1,17 @@
 // Thin fetch wrapper for the TKSR API: bearer token, JSON handling,
 // error normalisation and 401 handling.
 
+import type {
+  LiveClass,
+  CreateLiveClassInput,
+  UpdateLiveClassInput,
+  Certificate,
+  ProgramEligibility,
+  ProgramStudentCertificate,
+  CompletionRules,
+  AssignmentTask,
+} from './types.js'
+
 const TOKEN_KEY = 'tksr.token'
 
 export const tokenStore = {
@@ -81,6 +92,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
 export const api = {
   get: <T>(path: string): Promise<T> => request<T>('GET', path),
   post: <T>(path: string, body?: unknown): Promise<T> => request<T>('POST', path, { body: body ?? {} }),
+  put: <T>(path: string, body: unknown): Promise<T> => request<T>('PUT', path, { body }),
   patch: <T>(path: string, body: unknown): Promise<T> => request<T>('PATCH', path, { body }),
   del: <T>(path: string): Promise<T> => request<T>('DELETE', path),
   send: <T>(method: string, path: string, form: FormData): Promise<T> => request<T>(method, path, { form }),
@@ -123,4 +135,49 @@ export function formatApiError(error: unknown): string {
   }
   if (error instanceof Error) return error.message
   return 'Something went wrong'
+}
+
+// Live Classes
+export const liveClassApi = {
+  listByProgram: (programId: number) => api.get<{ data: LiveClass[] }>(`/programs/${programId}/live-classes`),
+  get: (id: number) => api.get<LiveClass>(`/live-classes/${id}`),
+  create: (programId: number, data: CreateLiveClassInput) =>
+    api.post<LiveClass>(`/programs/${programId}/live-classes`, data),
+  update: (id: number, data: UpdateLiveClassInput) =>
+    api.patch<LiveClass>(`/live-classes/${id}`, data),
+  publish: (id: number) => api.post<LiveClass>(`/live-classes/${id}/publish`),
+  cancel: (id: number) => api.post<LiveClass>(`/live-classes/${id}/cancel`),
+  delete: (id: number) => api.del<void>(`/live-classes/${id}`),
+  myUpcoming: () => api.get<LiveClass[]>('/my/classes'),
+}
+
+// Certificates
+export const certificateApi = {
+  myList: () => api.get<{ data: Certificate[] }>('/my/certificates'),
+  myEligibility: () => api.get<{ data: ProgramEligibility[] }>('/my/certificate-eligibility'),
+  request: (programId: number) =>
+    api.post<{ certificate: Certificate; created: boolean }>(`/my/programs/${programId}/certificate`),
+  download: (certificateId: number) => downloadFile(`/certificates/${certificateId}/download`, `certificate-${certificateId}.pdf`),
+  verify: (code: string) => api.get<Certificate>(`/public/certificates/${code}`),
+  // Staff
+  listByProgram: (programId: number) => api.get<{ certificates?: Certificate[]; students: ProgramStudentCertificate[] }>(`/programs/${programId}/certificates`),
+  issue: (programId: number, studentId: number) => api.post<{ certificate: Certificate; created: boolean }>(`/programs/${programId}/certificates`, { studentId }),
+  addApproval: (programId: number, studentId: number) => api.post<void>(`/programs/${programId}/approvals`, { studentId }),
+  removeApproval: (programId: number, studentId: number) => api.del<void>(`/programs/${programId}/approvals/${studentId}`),
+  getRules: (programId: number) => api.get<{ rules: CompletionRules }>(`/programs/${programId}/completion-rules`),
+  setRules: (programId: number, data: CompletionRules) =>
+    api.put<{ rules: CompletionRules }>(`/programs/${programId}/completion-rules`, data),
+}
+
+// Assignment Tasks
+export const assignmentTaskApi = {
+  get: (assignmentId: number) => api.get<AssignmentTask[]>(`/assignments/${assignmentId}/tasks`),
+  replace: (assignmentId: number, tasks: AssignmentTask[]) =>
+    api.put<{ tasks: AssignmentTask[] }>(`/assignments/${assignmentId}/tasks`, { tasks }),
+}
+
+// Submission Task Grades
+export const submissionTaskApi = {
+  grade: (submissionId: number, grades: { taskId: number; score: number; feedback?: string }[]) =>
+    api.post<void>(`/submissions/${submissionId}/task-grades`, { grades }),
 }

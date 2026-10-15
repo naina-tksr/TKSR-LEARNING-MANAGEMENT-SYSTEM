@@ -4,6 +4,7 @@ import { all, get, run } from '../db/helpers.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { ApiError } from '../middleware/error.js'
 import { requireProgramAccess } from '../services/access.js'
+import { listUpcomingForStudent } from '../services/liveClasses.js'
 import { getNextLesson, getProgramProgress, getStudentOverallProgress } from '../services/progress.js'
 import { camelKeys, camelList } from '../utils/camel.js'
 import { paramId } from '../utils/http.js'
@@ -202,6 +203,15 @@ myRouter.delete('/lessons/:id/complete', (req, res, next) => {
 // GET /api/my/progress — overall progress across programs
 myRouter.get('/progress', (req, res) => {
   res.json(getStudentOverallProgress(req.user!.id))
+})
+
+// GET /api/my/classes — upcoming live classes for programs the student is enrolled in
+myRouter.get('/classes', (req, res, next) => {
+  try {
+    res.json({ data: listUpcomingForStudent(req.user!.id) })
+  } catch (error) {
+    next(error)
+  }
 })
 
 // GET /api/my/submissions — recent submissions with grades

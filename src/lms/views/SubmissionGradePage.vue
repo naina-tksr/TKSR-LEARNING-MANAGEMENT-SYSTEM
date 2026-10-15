@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, downloadFile, formatApiError } from '../api'
-import type { SubmissionDetail } from '../types'
+import { api, downloadFile, formatApiError, submissionTaskApi } from '../api'
+import type { SubmissionDetailWithTasks, TaskResponse } from '../types'
 import { formatBytes, formatDateTime, formatRelative } from '../format'
 import { renderMarkdown } from '../markdown'
 import LoadingBlock from '../components/LoadingBlock.vue'
@@ -12,7 +12,7 @@ import StatusBadge from '../components/StatusBadge.vue'
 const route = useRoute()
 const submissionId = computed(() => Number(route.params.id))
 
-const data = ref<SubmissionDetail | null>(null)
+const data = ref<SubmissionDetailWithTasks | null>(null)
 const loading = ref(true)
 const error = ref<unknown>(null)
 
@@ -24,15 +24,39 @@ const gradeNotice = ref('')
 
 const gradeForm = reactive({ score: 0, feedback: '', evaluationId: undefined as number | undefined })
 
+// Task grades
+const taskGrades = ref<Record<number, { score: number; feedback: string }>>({})
+const taskGrading = ref(false)
+const taskGradeError = ref('')
+
+// Helpers for task grade inputs (avoid v-model on optional chaining)
+function getTaskScore(taskId: number): number {
+  return taskGrades.value[taskId]?.score ?? 0
+}
+function setTaskScore(taskId: number, score: number) {
+  if (!taskGrades.value[taskId]) taskGrades.value[taskId] = { score: 0, feedback: '' }
+  taskGrades.value[taskId].score = score
+}
+function getTaskFeedback(taskId: number): string {
+  return taskGrades.value[taskId]?.feedback ?? ''
+}
+function setTaskFeedback(taskId: number, feedback: string) {
+  if (!taskGrades.value[taskId]) taskGrades.value[taskId] = { score: 0, feedback: '' }
+  taskGrades.value[taskId].feedback = feedback
+}
+
 const latestEvaluation = computed(() => data.value?.evaluations[0] ?? null)
 const maxMarks = computed(() => data.value?.assignment.maxMarks ?? 100)
 const instructionsHtml = computed(() => renderMarkdown(data.value?.assignment.description ?? ''))
+const tasks = computed(() => data.value?.tasks ?? [])
+const taskResponses = computed(() => data.value?.taskResponses ?? [])
+const taskCompletion = computed(() => data.value?.taskCompletion)
 
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    data.value = await api.get<SubmissionDetail>(`/submissions/${submissionId.value}`)
+    data.value = await api.get<SubmissionDetailWithTasks>(`/submissions/${submissionId.value}`)
     const submission = data.value.submission
     const suggestion = data.value.evaluations.find((item) => item.source === 'ai')
     gradeForm.score =
@@ -41,6 +65,13 @@ async function load(): Promise<void> {
         : (suggestion?.suggestedScore ?? Math.round(maxMarks.value * 0.7))
     gradeForm.feedback = submission.feedback ?? ''
     gradeForm.evaluationId = suggestion?.source === 'ai' ? suggestion.id : undefined
+
+    // Initialize task grades from existing responses
+    for (const resp of taskResponses.value) {
+      if (resp.score !== null) {
+        taskGrades.value[resp.taskId] = { score: resp.score, feedback: resp.feedback ?? '' }
+      }
+    }
   } catch (cause) {
     error.value = cause
   } finally {
@@ -89,6 +120,29 @@ async function releaseGrade(): Promise<void> {
   } finally {
     grading.value = false
   }
+}
+
+async function saveTaskGrades(): Promise<void> {
+  taskGradeError.value = ''
+  taskGrading.value = true
+  try {
+    const grades = Object.entries(taskGrades.value).map(([taskId, g]) => ({
+      taskId: Number(taskId),
+      score: g.score,
+      feedback: g.feedback,
+    }))
+    await submissionTaskApi.grade(submissionId.value, grades)
+    taskGradeError.value = 'Task scores saved.'
+    await load()
+  } catch (cause) {
+    taskGradeError.value = formatApiError(cause)
+  } finally {
+    taskGrading.value = false
+  }
+}
+
+function getTaskResponse(taskId: number): TaskResponse | undefined {
+  return taskResponses.value.find(r => r.taskId === taskId)
 }
 
 onMounted(load)
@@ -180,6 +234,72 @@ onMounted(load)
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </section>
+
+          <!-- Task Grading -->
+          <section v-if="tasks.length > 0" class="card">
+            <h3 class="card-title">
+              Task Breakdown
+              <span class="sub">{{ taskCompletion?.requiredAssessed ?? 0 }}/{{ taskCompletion?.requiredTotal ?? 0 }} required tasks assessed</span>
+            </h3>
+            <div v-if="taskCompletion && !taskCompletion.hasTasks" class="muted small">
+              This assignment has no structured tasks. Use the rubric and overall grade above.
+            </div>
+            <div v-else>
+              <div v-for="task in tasks" :key="task.id" class="task-grade-row" style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; background: var(--surface-2);">
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start;">
+                  <div style="flex: 1; min-width: 280px;">
+                    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+                      <strong>Task {{ task.position }}: {{ task.prompt }}</strong>
+                      <span class="badge" :class="task.format === 'file' ? 'badge-info' : task.format === 'url' ? 'badge-success' : 'badge-warning'">
+                        {{ task.format.toUpperCase() }}
+                      </span>
+                      <span v-if="task.required" class="badge badge-danger">Required</span>
+                      <span class="badge muted">{{ task.maxMarks }} marks</span>
+                    </div>
+                    <div v-if="getTaskResponse(task.id)" class="small" style="white-space: pre-wrap; background: var(--surface-3); padding: 0.5rem; border-radius: 4px;">
+                      {{ getTaskResponse(task.id)!.responseText || 'No response provided' }}
+                    </div>
+                    <p v-else class="muted small">No response submitted</p>
+                  </div>
+                  <div style="min-width: 280px; display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div class="field" style="margin: 0;">
+                      <label>Score (0–{{ task.maxMarks }})</label>
+                      <input
+                        :value="getTaskScore(task.id)"
+                        @input="setTaskScore(task.id, Number(($event.target as HTMLInputElement).value))"
+                        type="number"
+                        :min="0"
+                        :max="task.maxMarks"
+                        step="1"
+                        class="select"
+                      />
+                    </div>
+                    <div class="field" style="margin: 0;">
+                      <label>Feedback (optional)</label>
+                      <textarea
+                        :value="getTaskFeedback(task.id)"
+                        @input="setTaskFeedback(task.id, ($event.target as HTMLTextAreaElement).value)"
+                        rows="2"
+                        class="select"
+                        placeholder="Specific feedback for this task…"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="flex gap-2" style="margin-top: 1rem; justify-content: flex-end;">
+                <button
+                  class="btn btn-primary"
+                  type="button"
+                  :disabled="taskGrading || !data.canGrade"
+                  @click="saveTaskGrades"
+                >
+                  <span v-if="taskGrading" class="spinner spinner-sm" />
+                  Save Task Scores
+                </button>
+              </div>
             </div>
           </section>
         </div>

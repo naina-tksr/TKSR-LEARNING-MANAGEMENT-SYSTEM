@@ -552,7 +552,7 @@ onMounted(load)
               <div class="sub">
                 {{ assignment.maxMarks }} marks
                 <template v-if="assignment.dueAt"> · due {{ formatDate(assignment.dueAt) }}</template>
-                <template v-if="assignment.rubricItems.length > 0"> · rubric {{ assignment.rubricItems.length }} criteria</template>
+                <template v-if="(assignment.rubricItems?.length ?? 0) > 0"> · rubric {{ assignment.rubricItems.length }} criteria</template>
               </div>
             </div>
             <span v-if="access === 'student' && assignment.mySubmission" class="right">

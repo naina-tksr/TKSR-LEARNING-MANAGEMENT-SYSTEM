@@ -270,3 +270,40 @@ export async function seedAssignment(
   if (published.status !== 200) throw new Error(`assignment publish failed: ${JSON.stringify(published.body)}`)
   return assignmentId
 }
+
+export interface TaskSpecInput {
+  prompt: string
+  format?: 'text' | 'mixed' | 'url' | 'file'
+  required?: boolean
+  maxMarks: number
+}
+
+/** Replaces an assignment's per-task breakdown (used by the grading-integrity tests). */
+export async function setAssignmentTasks(
+  ctx: TestContext,
+  token: string,
+  assignmentId: number,
+  tasks: TaskSpecInput[],
+): Promise<{ id: number; prompt: string; maxMarks: number; required: boolean }[]> {
+  const res = await ctx.api<{ assignment: { tasks: { id: number; prompt: string; maxMarks: number; required: boolean }[] } }>(
+    'PUT',
+    `/api/assignments/${assignmentId}/tasks`,
+    { token, body: { tasks } },
+  )
+  if (res.status !== 200) throw new Error(`set tasks failed: ${JSON.stringify(res.body)}`)
+  return res.body.assignment.tasks
+}
+
+/** Submits a mixed-format submission carrying per-task answers. */
+export async function submitTaskWork<T = Record<string, unknown> | unknown[]>(
+  ctx: TestContext,
+  token: string,
+  assignmentId: number,
+  answers: { taskId: number; responseText: string }[],
+  text = 'Completed the task answers.',
+): Promise<ApiResponse<T>> {
+  const form = new FormData()
+  form.append('text', text)
+  form.append('taskResponses', JSON.stringify(answers))
+  return ctx.api<T>('POST', `/api/assignments/${assignmentId}/submissions`, { token, form })
+}

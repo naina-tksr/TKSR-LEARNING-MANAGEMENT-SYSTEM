@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { api, formatApiError } from '../api'
 import type { Paginated, ProgramListItem, User } from '../types'
 import { session } from '../session'
@@ -21,7 +22,7 @@ const search = ref('')
 const statusFilter = ref('')
 const levelFilter = ref('')
 const page = ref(1)
-
+const router = useRouter()
 const trainers = ref<User[]>([])
 const showCreate = ref(false)
 const createError = ref('')
@@ -99,9 +100,14 @@ async function createProgram(): Promise<void> {
   }
 }
 
+function openProgram(program: ProgramListItem, event?: MouseEvent): void {
+  const target = event?.target instanceof Element ? event.target : null
+  if (target?.closest('button, a, input, select, textarea, [role="button"]')) return
+  void router.push(`/app/programs/${program.id}`)
+}
+
 onMounted(load)
 </script>
-
 <template>
   <div>
     <div class="page-head">
@@ -150,10 +156,8 @@ onMounted(load)
       />
 
       <div v-else class="grid grid-3">
-        <article v-for="program in programs" :key="program.id" class="program-card">
-          <div class="flex-between">
-            <h3><router-link :to="`/app/programs/${program.id}`">{{ program.title }}</router-link></h3>
-            <StatusBadge v-if="!isStudent" :status="program.status" />
+        <article v-for="program in programs" :key="program.id" class="program-card" tabindex="0" @click="openProgram(program, $event)" @keydown.enter.prevent="openProgram(program)">          <div class="flex-between">
+            <h3 @click.stop><router-link :to="`/app/programs/${program.id}`" @click.stop>{{ program.title }}</router-link></h3>            <StatusBadge v-if="!isStudent" :status="program.status" />
           </div>
           <p class="desc">{{ program.description || 'No description yet.' }}</p>
           <div class="meta-row">
@@ -168,8 +172,7 @@ onMounted(load)
           </div>
           <div v-else class="foot">
             <span class="small muted">Updated {{ program.updatedAt.slice(0, 10) }}</span>
-            <router-link class="btn btn-sm" :to="`/app/programs/${program.id}`">Open →</router-link>
-          </div>
+            <router-link class="btn btn-sm" :to="`/app/programs/${program.id}`" @click.stop>Open →</router-link>          </div>
         </article>
       </div>
 

@@ -22,7 +22,11 @@ const sections = computed<{ title: string; links: NavLink[] }[]>(() => {
   ]
 
   if (role.value === 'student') {
-    learning.push({ to: '/app/my-submissions', label: 'My submissions', icon: '↧' })
+    learning.push(
+      { to: '/app/my-submissions', label: 'My submissions', icon: '↧' },
+      { to: '/app/classes', label: 'Live Classes', icon: '◉' },
+      { to: '/app/certificates', label: 'Certificates', icon: '◆' },
+    )
   }
 
   const management: NavLink[] = []

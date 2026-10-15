@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, formatApiError } from '../api'
-import type { Assignment, Paginated, SubmissionListItem } from '../types'
+import { api, formatApiError, assignmentTaskApi } from '../api'
+import type { Assignment, Paginated, SubmissionListItem, AssignmentTask, TaskResponse } from '../types'
 import { downloadFile } from '../api'
 import { renderMarkdown } from '../markdown'
 import { formatDate, formatDateTime, formatRelative, isPast } from '../format'
@@ -11,9 +11,13 @@ import ErrorBlock from '../components/ErrorBlock.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import EmptyState from '../components/EmptyState.vue'
+import ModalDialog from '../components/ModalDialog.vue'
 
 interface AssignmentResponse {
-  assignment: Assignment
+  assignment: Assignment & {
+    tasks?: AssignmentTask[]
+    myTaskResponses?: TaskResponse[]
+  }
   program: { id: number; title: string; status: string }
   access: 'admin' | 'trainer' | 'student'
   mySubmission?: {
@@ -51,10 +55,15 @@ const submitting = ref(false)
 const formError = ref('')
 const formNotice = ref('')
 
+// tasks
+const taskResponses = ref<Record<number, string>>({}) // taskId -> response text
+
 const isStudent = computed(() => data.value?.access === 'student')
 const canManage = computed(() => data.value?.access === 'admin' || data.value?.access === 'trainer')
 const assignment = computed(() => data.value?.assignment ?? null)
 const rendered = computed(() => renderMarkdown(assignment.value?.description ?? ''))
+const tasks = computed(() => assignment.value?.tasks ?? [])
+const myTaskResponses = computed(() => assignment.value?.myTaskResponses ?? [])
 
 async function load(): Promise<void> {
   loading.value = true
@@ -106,6 +115,14 @@ async function submit(): Promise<void> {
     if (form.text.trim()) payload.append('text', form.text.trim())
     if (form.url.trim()) payload.append('url', form.url.trim())
     if (form.file) payload.append('file', form.file)
+    // Also include task responses if any
+    const taskResponsesArray = Object.entries(taskResponses.value).map(([taskId, responseText]) => ({
+      taskId: Number(taskId),
+      responseText,
+    }))
+    if (taskResponsesArray.length > 0) {
+      payload.append('taskResponses', JSON.stringify(taskResponsesArray))
+    }
     const result = await api.send<{ submission: { attempts: number } }>(
       'POST',
       `/assignments/${assignmentId.value}/submissions`,
@@ -132,7 +149,7 @@ async function togglePublish(): Promise<void> {
 
 async function removeAssignment(): Promise<void> {
   if (!assignment.value) return
-  if (!window.confirm(`Delete “${assignment.value.title}”?`)) return
+  if (!window.confirm(`Delete "${assignment.value.title}"?`)) return
   try {
     await api.del(`/assignments/${assignment.value.id}`)
     window.history.back()
@@ -144,6 +161,64 @@ async function removeAssignment(): Promise<void> {
 async function gotoSubmissionPage(target: number): Promise<void> {
   submissionPage.value = target
   await loadSubmissions()
+}
+
+// Task management (trainer/admin)
+const manageTasksModal = ref(false)
+const taskForms = ref<Array<{ prompt: string; format: 'text' | 'mixed' | 'url' | 'file'; required: boolean; maxMarks: number }>>([])
+
+function openManageTasks() {
+  taskForms.value = (tasks.value || []).map(t => ({
+    prompt: t.prompt,
+    format: t.format,
+    required: t.required,
+    maxMarks: t.maxMarks,
+  }))
+  if (taskForms.value.length === 0) {
+    taskForms.value.push({ prompt: '', format: 'text', required: true, maxMarks: 10 })
+  }
+  manageTasksModal.value = true
+}
+
+// Used in template (manage tasks modal)
+function addTaskForm() {
+  taskForms.value.push({ prompt: '', format: 'text', required: true, maxMarks: 10 })
+}
+void addTaskForm
+
+// Used in template (manage tasks modal)
+function removeTaskForm(index: number) {
+  taskForms.value.splice(index, 1)
+}
+void removeTaskForm
+
+// Used in template (manage tasks modal form submit)
+async function saveTasks() {
+  try {
+    const validTasks = taskForms.value
+      .filter(t => t.prompt.trim() && t.maxMarks > 0)
+      .map((t, index) => ({
+        id: 0,
+        assignmentId: assignmentId.value,
+        position: index + 1,
+        prompt: t.prompt,
+        format: t.format,
+        required: t.required,
+        maxMarks: t.maxMarks,
+      }))
+    await assignmentTaskApi.replace(assignmentId.value, validTasks)
+    manageTasksModal.value = false
+    await load()
+  } catch (e) {
+    alert(formatApiError(e))
+  }
+}
+void saveTasks
+
+// Student: get existing task response
+function getMyTaskResponse(taskId: number): string {
+  const resp = myTaskResponses.value.find(r => r.taskId === taskId)
+  return resp?.responseText ?? ''
 }
 
 onMounted(load)
@@ -180,6 +255,7 @@ onMounted(load)
           <button class="btn" type="button" @click="togglePublish()">
             {{ assignment.status === 'published' ? 'Unpublish' : 'Publish' }}
           </button>
+          <button class="btn" type="button" @click="openManageTasks()">Manage Tasks</button>
           <button class="btn btn-danger" type="button" @click="removeAssignment()">Delete</button>
         </div>
       </div>
@@ -215,6 +291,49 @@ onMounted(load)
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </section>
+
+          <!-- Tasks (for students and trainers) -->
+          <section v-if="tasks.length > 0" class="card">
+            <h3 class="card-title">
+              Tasks
+              <span class="sub">{{ tasks.length }} part{{ tasks.length !== 1 ? 's' : '' }}</span>
+            </h3>
+            <div v-for="task in tasks" :key="task.id" class="task-card" style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+              <div style="display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 280px;">
+                  <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+                    <strong>Task {{ task.position }}: {{ task.prompt }}</strong>
+                    <span class="badge" :class="task.format === 'file' ? 'badge-info' : task.format === 'url' ? 'badge-success' : 'badge-warning'">
+                      {{ task.format.toUpperCase() }}
+                    </span>
+                    <span v-if="task.required" class="badge badge-danger">Required</span>
+                    <span class="badge muted">{{ task.maxMarks }} marks</span>
+                  </div>
+                  <p class="muted small" style="margin: 0;">{{ task.format === 'text' ? 'Written response expected' : task.format === 'mixed' ? 'Text and/or file upload' : task.format === 'url' ? 'Submit a link (GitHub, Drive, etc.)' : 'File upload only' }}</p>
+                </div>
+                <div v-if="isStudent && (!data.mySubmission || data.mySubmission.status !== 'graded')" style="min-width: 200px;">
+                  <textarea
+                    v-model="taskResponses[task.id]"
+                    :placeholder="task.format === 'url' ? 'Paste your link here…' : 'Your answer…'"
+                    rows="3"
+                    class="task-input"
+                    style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--text); resize: vertical;"
+                  />
+                </div>
+                <div v-else-if="isStudent && data.mySubmission" style="min-width: 200px;">
+                  <div class="small" style="white-space: pre-wrap; background: var(--surface-2); padding: 0.5rem; border-radius: 4px;">
+                    {{ getMyTaskResponse(task.id) || '—' }}
+                  </div>
+                  <p v-if="getMyTaskResponse(task.id)" class="small muted">Submitted</p>
+                </div>
+                <div v-else-if="canManage" style="min-width: 200px; text-align: right;">
+                  <span class="badge" :class="['badge-' + (task.required ? 'danger' : 'info')]">
+                    {{ task.required ? 'Required' : 'Optional' }}
+                  </span>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -369,4 +488,44 @@ onMounted(load)
       </div>
     </template>
   </div>
+
+  <!-- Manage Tasks Modal (admin/trainer only) -->
+  <ModalDialog v-if="canManage" v-model:open="manageTasksModal" title="Manage Tasks" size="xl">
+    <template #default>
+      <form @submit.prevent="saveTasks" class="form-grid">
+        <div v-for="(taskForm, index) in taskForms" :key="index" class="task-form-row" style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 120px 100px 100px auto; gap: 0.5rem; align-items: end; padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2);">
+          <div class="field" style="margin: 0;">
+            <label>Prompt *</label>
+            <input v-model="taskForm.prompt" type="text" required placeholder="e.g. Explain the concept of gradient descent" />
+          </div>
+          <div class="field" style="margin: 0;">
+            <label>Format</label>
+            <select v-model="taskForm.format" class="select">
+              <option value="text">Text</option>
+              <option value="mixed">Text + File</option>
+              <option value="url">Link</option>
+              <option value="file">File only</option>
+            </select>
+          </div>
+          <div class="field" style="margin: 0;">
+            <label>Max Marks *</label>
+            <input v-model.number="taskForm.maxMarks" type="number" min="1" max="100" required class="select" />
+          </div>
+          <div class="field" style="margin: 0;">
+            <label>Required</label>
+            <select v-model="taskForm.required" class="select">
+              <option :value="true">Yes</option>
+              <option :value="false">No</option>
+            </select>
+          </div>
+          <button v-if="taskForms.length > 1" type="button" class="btn btn-ghost btn-sm" @click="removeTaskForm(index)" style="height: fit-content;">Remove</button>
+        </div>
+        <button type="button" class="btn btn-secondary" @click="addTaskForm" style="grid-column: 1 / -1; justify-self: start; margin-top: 0.5rem;">+ Add Task</button>
+        <div class="flex gap-2" style="grid-column: 1 / -1; margin-top: 1rem; justify-content: flex-end;">
+          <button type="button" class="btn btn-ghost" @click="manageTasksModal = false">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Tasks</button>
+        </div>
+      </form>
+    </template>
+  </ModalDialog>
 </template>

@@ -18,6 +18,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('./lms/views/LoginPage.vue'),
     meta: { public: true, title: 'Sign in' },
   },
+  {
+    path: '/verify/:code',
+    name: 'verify-certificate',
+    component: () => import('./lms/views/PublicVerifyPage.vue'),
+    meta: { public: true, title: 'Verify Certificate' },
+  },
   { path: '/', redirect: '/app' },
   {
     path: '/app',
@@ -73,6 +79,10 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./lms/views/MySubmissionsPage.vue'),
         meta: { roles: ['student'], title: 'My submissions' },
       },
+      { path: 'classes', name: 'classes', component: () => import('./lms/views/StudentClassesPage.vue'), meta: { roles: ['student'], title: 'Live Classes' } },
+      { path: 'certificates', name: 'certificates', component: () => import('./lms/views/StudentCertificatesPage.vue'), meta: { roles: ['student'], title: 'Certificates' } },
+      { path: 'programs/:id/classes', name: 'program-classes', component: () => import('./lms/views/ProgramClassesPage.vue'), meta: { roles: ['admin', 'trainer'], title: 'Live Classes' } },
+      { path: 'programs/:id/certificates', name: 'program-certificates', component: () => import('./lms/views/ProgramCertificatesPage.vue'), meta: { roles: ['admin', 'trainer'], title: 'Certificates' } },
       { path: ':pathMatch(.*)*', redirect: '/app' },
     ],
   },
